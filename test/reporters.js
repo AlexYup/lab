@@ -8,7 +8,6 @@ const Os = require('os');
 const Path = require('path');
 const Stream = require('stream');
 const Code = require('code');
-const Hoek = require('hoek');
 const _Lab = require('../test_runner');
 const Lab = require('../');
 const Reporters = require('../lib/reporters');
@@ -33,19 +32,19 @@ describe('Reporter', () => {
 
     it('outputs to a stream', async () => {
 
-        const Recorder = function () {
+        const Recorder = class extends Stream.Writable {
 
-            Stream.Writable.call(this);
+            constructor() {
 
-            this.content = '';
-        };
+                super();
+                this.content = '';
+            }
 
-        Hoek.inherits(Recorder, Stream.Writable);
+            _write(chunk, encoding, next) {
 
-        Recorder.prototype._write = function (chunk, encoding, next) {
-
-            this.content += chunk.toString();
-            next();
+                this.content += chunk.toString();
+                next();
+            }
         };
 
         const script = Lab.script();
@@ -58,6 +57,18 @@ describe('Reporter', () => {
         const { code, output } = await Lab.report(script, { output: recorder });
         expect(code).to.equal(0);
         expect(output).to.equal(recorder.content);
+    });
+
+    it('outputs to stdout', async () => {
+
+        const script = Lab.script();
+        script.experiment('test', () => {
+
+            script.test('works', () => {});
+        });
+
+        const { code } = await Lab.report(script, { output: process.stdout });
+        expect(code).to.equal(0);
     });
 
     it('outputs to a file', async () => {
@@ -411,7 +422,62 @@ describe('Reporter', () => {
             expect(code).to.equal(1);
             expect(output).to.contain('Failed tests:');
             expect(output).to.contain('1) test works:');
-            expect(output).to.contain(' of 1 tests failed');
+            expect(output).to.contain('Error: boom');
+            expect(output).to.contain('at ');
+            expect(output).to.contain('1 of 1 tests failed');
+        });
+
+        it('generates a report with caught error (multiline)', async () => {
+
+            const script = Lab.script();
+            script.experiment('test', () => {
+
+                script.test('works', () => {
+
+                    throw new Error('boom\nbam');
+                });
+            });
+
+            const { code, output } = await Lab.report(script, { reporter: 'console', colors: false, leaks: false, output: false });
+            expect(code).to.equal(1);
+            expect(output).to.contain('Failed tests:');
+            expect(output).to.contain('1) test works:');
+            expect(output).to.contain('boom\nbam');
+            expect(output).to.contain('at script.test');
+            expect(output).to.contain('1 of 1 tests failed');
+        });
+
+        it('generates a report with caught error (message not part of stack)', async () => {
+
+            const script = Lab.script();
+            script.experiment('test', () => {
+
+                script.test('works', () => {
+
+                    function OtherError() { // eslint-disable-line func-style
+
+                        this.message = 'Amsg';
+                        Error.captureStackTrace(this);
+                        // Read .stack to trigger stack generation
+                        this.oldstack = '' + this.stack;
+                    }
+
+                    OtherError.prototype = Object.create(Error.prototype);
+                    OtherError.prototype.name = 'OtherError';
+                    const error = new OtherError();
+                    error.message = 'Bmsg';
+                    throw error;
+                });
+            });
+
+            const { code, output } = await Lab.report(script, { reporter: 'console', colors: false, leaks: false, output: false });
+            expect(code).to.equal(1);
+            expect(output).to.contain('Failed tests:');
+            expect(output).to.contain('1) test works:');
+            expect(output).to.contain('Bmsg');
+            expect(output).to.contain('Amsg');
+            expect(output).to.contain('at script.test');
+            expect(output).to.contain('1 of 1 tests failed');
         });
 
         it('generates a report with caught error (data plain)', async () => {
@@ -432,6 +498,8 @@ describe('Reporter', () => {
             expect(code).to.equal(1);
             expect(output).to.contain('1 of 1 tests failed');
             expect(output).to.contain('Failed tests');
+            expect(output).to.contain('Additional error data:');
+            expect(output).to.contain('abc');
         });
 
         it('generates a report with caught error (data array)', async () => {
@@ -627,7 +695,7 @@ describe('Reporter', () => {
             });
 
             const { output } = await Lab.report(script, { reporter: 'console', progress: 2, output: false, assert: false });
-            expect(output).to.match(/^test\n  \u001b\[32m[✔√]\u001b\[0m \u001b\[92m1\) works \(\d+ ms\)\u001b\[0m\n\n\n\u001b\[32m1 tests complete\u001b\[0m\nTest duration: \d+ ms\n\u001b\[32mNo global variable leaks detected\u001b\[0m\n\n$/);
+            expect(output).to.match(/^test\n  \u001b\[32m[✔√]\u001b\[0m \u001b\[90m1\) works \(\d+ ms\)\u001b\[0m\n\n\n\u001b\[32m1 tests complete\u001b\[0m\nTest duration: \d+ ms\n\u001b\[32mNo global variable leaks detected\u001b\[0m\n\n$/);
         });
 
         it('generates a report with verbose progress with experiments with same named tests', async () => {
@@ -695,7 +763,7 @@ describe('Reporter', () => {
             });
 
             const { output } = await Lab.report(script, { reporter: 'console', progress: 2, assert: Code, output: false });
-            expect(output).to.match(/^test\n  \u001b\[32m[✔√]\u001b\[0m \u001b\[92m1\) works \(\d+ ms and \d+ assertions\)\u001b\[0m\n\n\n\u001b\[32m1 tests complete\u001b\[0m\nTest duration: \d+ ms\nAssertions count\: \d+ \(verbosity\: \d+\.\d+\)\n\u001b\[32mNo global variable leaks detected\u001b\[0m\n\n$/);
+            expect(output).to.match(/^test\n  \u001b\[32m[✔√]\u001b\[0m \u001b\[90m1\) works \(\d+ ms and \d+ assertions\)\u001b\[0m\n\n\n\u001b\[32m1 tests complete\u001b\[0m\nTest duration: \d+ ms\nAssertions count\: \d+ \(verbosity\: \d+\.\d+\)\n\u001b\[32mNo global variable leaks detected\u001b\[0m\n\n$/);
         });
 
         it('generates a report with verbose progress that displays well on windows', async () => {
@@ -772,7 +840,8 @@ describe('Reporter', () => {
 
         it('generates a coverage report (verbose)', async () => {
 
-            const Test = require('./coverage/console');
+            const Test1 = require('./coverage/console');
+            const Test2 = require('./coverage/console-large-file');
             const Full = require('./coverage/console-full');
 
             const script = Lab.script();
@@ -780,7 +849,8 @@ describe('Reporter', () => {
 
                 script.test('something', () => {
 
-                    Test.method(1, 2, 3);
+                    Test1.method(1, 2, 3);
+                    Test2.method(1);
                     Full.method(1);
 
                 });
@@ -792,8 +862,9 @@ describe('Reporter', () => {
             });
 
             const { output } = await Lab.report(script, { reporter: 'console', coverage: true, coveragePath: Path.join(__dirname, './coverage/console'), output: false });
-            expect(output).to.contain('Coverage: 76.47% (4/17)');
-            expect(output).to.contain('test/coverage/console.js missing coverage on line(s): 14, 17, 18, 21');
+            expect(output).to.contain('Coverage: 64.86% (26/74)');
+            expect(output).to.contain('test/coverage/console.js missing coverage on line(s): 14, 17-19, 22, 23');
+            expect(output).to.contain('test/coverage/console-large-file.js missing coverage on line(s): 13, 17, 20, 25, 26, 29, 35-37, 40, 47-50, 53, 61-65');
             expect(output).to.not.contain('console-full');
         });
 
@@ -901,7 +972,7 @@ describe('Reporter', () => {
             expect(output).to.match(/test\n  [✔√] 1\) works \(\d+ ms\)\n  [✖×] 2\) fails\n  \- 3\) skips \(\d+ ms\)\n/);
         });
 
-        it('excludes colors when terminal does not support', { parallel: false }, async () => {
+        it('excludes colors when terminal does not support', async () => {
 
             delete require.cache[require.resolve('supports-color')];
             const orig = {
@@ -1141,7 +1212,7 @@ describe('Reporter', () => {
             expect(result.tests.group[1].title).to.equal('fails');
             expect(result.tests.group[1].err).to.equal('Expected true to equal specified value: false');
             expect(result.tests.group[2].title).to.equal('fails with non-error');
-            expect(result.tests.group[2].err).to.equal('Non Error object received or caught');
+            expect(result.tests.group[2].err).to.equal('Non Error object received or caught (unit test)');
             expect(result.leaks.length).to.equal(0);
             expect(result.duration).to.exist();
             expect(result.lint.length).to.be.greaterThan(1);
@@ -1189,6 +1260,26 @@ describe('Reporter', () => {
             const result = JSON.parse(output);
             expect(result.coverage.percent).to.equal(100);
         });
+
+        it('generates a report with child linting', async () => {
+
+            const reporter = Reporters.generate({ reporter: 'json', lint: true });
+            const notebook = {
+                tests: [],
+                lint: {
+                    lint: [
+                        { errors: [{ severity: 'WARNING' }, { severity: 'ERROR' }] },
+                        { errors: [{ severity: 'ERROR' }, { severity: 'ERROR' }] },
+                        { errors: [{ severity: 'WARNING' }, { severity: 'ERROR' }] },
+                        { errors: [{ severity: 'WARNING' }, { severity: 'ERROR' }] }
+                    ]
+                }
+            };
+
+            const { output } = await reporter.finalize(notebook);
+            const result = JSON.parse(output);
+            expect(result.lint.length).to.equal(4);
+        });
     });
 
     describe('html', () => {
@@ -1208,7 +1299,7 @@ describe('Reporter', () => {
 
             const { output } = await Lab.report(script, { reporter: 'html', coverage: true, coveragePath: Path.join(__dirname, './coverage/html'), output: false });
             expect(output).to.contain('<div class="stats medium">');
-            expect(output).to.contain('<span class="cov medium">66.67</span>');
+            expect(output).to.contain('66.67%');
             delete global.__$$testCovHtml;
         });
 
@@ -1235,6 +1326,28 @@ describe('Reporter', () => {
             expect(output, 'missed original line not included').to.contains([
                 '<tr id="while.js__14" class="miss">',
                 '<td class="source" data-tooltip>        value &#x3D; false;</td>']);
+            delete global.__$$testCovHtml;
+        });
+
+        it('generates a coverage report for TypeScript notebook with missing source', async () => {
+
+            const SourceMapSupport = require('source-map-support');
+
+            SourceMapSupport.install({
+                retrieveSourceMap: (path) => {
+
+                    if (path === 'src/test.ts') {
+                        return { map: require('./coverage/ts-notebook-map.json') };
+                    }
+                }
+            });
+
+            const Notebook = require('./coverage/ts-notebook.json');
+
+            const reporter = Reporters.generate({ reporter: 'html' });
+
+            const { output } = await reporter.finalize(Notebook);
+            expect(output).to.contain('class="percentage">66.67%');
             delete global.__$$testCovHtml;
         });
 
@@ -1380,7 +1493,7 @@ describe('Reporter', () => {
 
             const { code, output } = await Lab.report(script, { reporter: 'html', 'context-timeout': 1, output: false });
             expect(code).to.equal(1);
-            expect(output).to.contain('Non Error object received or caught');
+            expect(output).to.contain('Non Error object received or caught &#x28;unit test&#x29;');
         });
 
         it('tags file percentile based on levels', async () => {
@@ -1725,19 +1838,19 @@ describe('Reporter', () => {
 
         it('with multiple outputs are supported', async () => {
 
-            const Recorder = function () {
+            const Recorder = class extends Stream.Writable {
 
-                Stream.Writable.call(this);
+                constructor() {
 
-                this.content = '';
-            };
+                    super();
+                    this.content = '';
+                }
 
-            Hoek.inherits(Recorder, Stream.Writable);
+                _write(chunk, encoding, next) {
 
-            Recorder.prototype._write = function (chunk, encoding, next) {
-
-                this.content += chunk.toString();
-                next();
+                    this.content += chunk.toString();
+                    next();
+                }
             };
 
             const script = Lab.script();
@@ -1750,8 +1863,7 @@ describe('Reporter', () => {
             const filename = Path.join(Os.tmpdir(), [Date.now(), process.pid, Crypto.randomBytes(8).toString('hex')].join('-'));
 
             const { code, output } = await Lab.report(script, { reporter: ['lcov', 'console'], output: [filename, recorder], coverage: true });
-            expect(code.lcov).to.equal(0);
-            expect(code.console).to.equal(0);
+            expect(code).to.equal(0);
             expect(output.lcov).to.equal(Fs.readFileSync(filename).toString());
             expect(output.console).to.equal(recorder.content);
             Fs.unlinkSync(filename);
@@ -1759,22 +1871,23 @@ describe('Reporter', () => {
 
         it('has correct exit code when test fails', async () => {
 
-            const Recorder = function () {
+            const Recorder = class extends Stream.Writable {
 
-                Stream.Writable.call(this);
+                constructor() {
 
-                this.content = '';
-            };
+                    super();
+                    this.content = '';
+                }
 
-            Hoek.inherits(Recorder, Stream.Writable);
+                _write(chunk, encoding, next) {
 
-            Recorder.prototype._write = function (chunk, encoding, next) {
-
-                this.content += chunk.toString();
-                next();
+                    this.content += chunk.toString();
+                    next();
+                }
             };
 
             const Test = require('./coverage/basic');
+
             const script = Lab.script();
             script.experiment('test', () => {
 
@@ -1794,9 +1907,7 @@ describe('Reporter', () => {
             const filename = Path.join(Os.tmpdir(), [Date.now(), process.pid, Crypto.randomBytes(8).toString('hex')].join('-'));
 
             const { code, output } = await Lab.report(script, { reporter: ['lcov', 'html', 'console'], output: [filename, htmlRecorder, consoleRecorder], coverage: true, coveragePath: Path.join(__dirname, './coverage/basic.js') });
-            expect(code.console).to.equal(1);
-            expect(code.lcov).to.equal(1);
-            expect(code.html).to.equal(1);
+            expect(code).to.equal(1);
             expect(output.lcov).to.equal(Fs.readFileSync(filename).toString());
             expect(output.html).to.equal(htmlRecorder.content);
             expect(consoleRecorder.content).to.contain('Coverage: 100.00%');
@@ -1806,22 +1917,23 @@ describe('Reporter', () => {
 
         it('can run a single reporter', async () => {
 
-            const Recorder = function () {
+            const Recorder = class extends Stream.Writable {
 
-                Stream.Writable.call(this);
+                constructor() {
 
-                this.content = '';
-            };
+                    super();
+                    this.content = '';
+                }
 
-            Hoek.inherits(Recorder, Stream.Writable);
+                _write(chunk, encoding, next) {
 
-            Recorder.prototype._write = function (chunk, encoding, next) {
-
-                this.content += chunk.toString();
-                next();
+                    this.content += chunk.toString();
+                    next();
+                }
             };
 
             const Test = require('./coverage/basic');
+
             const script = Lab.script();
             script.experiment('test', () => {
 
@@ -1841,19 +1953,19 @@ describe('Reporter', () => {
 
         it('that are duplicates with multiple outputs are supported', async () => {
 
-            const Recorder = function () {
+            const Recorder = class extends Stream.Writable {
 
-                Stream.Writable.call(this);
+                constructor() {
 
-                this.content = '';
-            };
+                    super();
+                    this.content = '';
+                }
 
-            Hoek.inherits(Recorder, Stream.Writable);
+                _write(chunk, encoding, next) {
 
-            Recorder.prototype._write = function (chunk, encoding, next) {
-
-                this.content += chunk.toString();
-                next();
+                    this.content += chunk.toString();
+                    next();
+                }
             };
 
             const script = Lab.script();
@@ -1867,8 +1979,7 @@ describe('Reporter', () => {
 
             const { code, output } = await Lab.report(script, { reporter: ['console', 'console'], output: [filename, recorder], coverage: true });
 
-            expect(code.console).to.equal(0);
-            expect(code.console2).to.equal(0);
+            expect(code).to.equal(0);
             expect(output.console).to.equal(Fs.readFileSync(filename).toString());
             expect(output.console2).to.equal(recorder.content);
             Fs.unlinkSync(filename);

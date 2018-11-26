@@ -137,11 +137,13 @@ describe('Linters - eslint', () => {
         expect(result).to.include('lint');
 
         const eslintResults = result.lint;
-        expect(eslintResults).to.have.length(0);
+        expect(eslintResults).to.have.length(1);
+        expect(eslintResults[0].errors[0].message).to.contain('No files');
     });
 
     it('should fix lint rules when --lint-fix used', async (flags) => {
 
+        let isFixed = false;
         const originalWriteFileSync = Fs.writeFileSync;
 
         flags.onCleanup = () => {
@@ -152,7 +154,8 @@ describe('Linters - eslint', () => {
         Fs.writeFileSync = (path, output) => {
 
             expect(path).to.endWith(Path.join('test', 'lint', 'eslint', 'fix', 'success.js'));
-            expect(output).to.endWith('\n\n    return value;\n};\n');
+            expect(output).to.endWith('\n    return value;\n};\n');
+            isFixed = true;
         };
 
         const path = Path.join(__dirname, 'lint', 'eslint', 'fix');
@@ -164,8 +167,9 @@ describe('Linters - eslint', () => {
         expect(eslintResults).to.have.length(1);
         expect(eslintResults[0]).to.include({
             totalErrors: 0,
-            totalWarnings: 0
+            totalWarnings: 1
         });
+        expect(isFixed, 'Lint updates not written').to.be.true();
     });
 
     it('should error on malformed lint-options', async () => {

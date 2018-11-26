@@ -93,7 +93,9 @@ describe('CLI', () => {
         expect(result.output).to.contain('failure.js:26');
         expect(result.output).to.contain('failure.js:35');
         expect(result.output).to.contain('failure.js:46');
-        expect(result.output).to.contain('3 of 3 tests failed');
+        expect(result.output).to.contain('failure.js:74');
+        expect(result.output).to.contain('failure.js:107');
+        expect(result.output).to.contain('5 of 7 tests failed');
     });
 
     it('handles parser error', async () => {
@@ -101,7 +103,7 @@ describe('CLI', () => {
         const result = await RunCli(['test/cli_error/parse.js']);
         expect(result.code).to.equal(1);
         expect(result.errorOutput).to.contain('Error requiring file');
-        expect(result.errorOutput).to.contain('cli_error/parse_invalid.js:5');
+        expect(result.errorOutput).to.contain(Path.normalize('cli_error/parse_invalid.js') + ':5');
         expect(result.errorOutput).to.not.contain('UnhandledPromiseRejectionWarning');
     });
 
@@ -116,7 +118,7 @@ describe('CLI', () => {
 
     it('exits with code 1 when function returns error with multiple reporters', async () => {
 
-        const result = await RunCli(['test/cli_failure/failure.js', '-r', 'console', '-r', 'lcov']);
+        const result = await RunCli(['test/cli_throws/throws.js', '-r', 'console', '-r', 'lcov']);
         expect(result.code).to.equal(1);
     });
 
@@ -250,7 +252,7 @@ describe('CLI', () => {
 
                     expect(combinedOutput).to.contain('Debugger listening on').and.to.contain(port.toString());
                     if (!cli.killed) {
-                        cli.kill();
+                        cli.kill('SIGTERM');
                     }
 
                     resolve();
@@ -337,7 +339,24 @@ describe('CLI', () => {
         expect(result.output).to.contain('\u001b[');
     });
 
-    it('can include all files for coverage with the --coverage-path argument', async () => {
+    it('defaults to no context-timeout for before functions', { timeout: 4000 }, async () => {
+
+        const result = await RunCli(['test/cli_timeout/before.js']);
+
+        expect(result.errorOutput).to.equal('');
+        expect(result.code).to.equal(0);
+        expect(result.output).to.contain('##before##');
+    });
+
+    it('can specify context-timeout for before functions', async () => {
+
+        const result = await RunCli(['test/cli_timeout/before.js', '--context-timeout', '500']);
+
+        expect(result.code).to.equal(1);
+        expect(result.output).to.not.contain('##before##');
+    });
+
+    it('can include files for coverage with the --coverage-path argument', async () => {
 
         const result = await RunCli(['test/cli_coverage', '-t', '100', '--coverage-path', 'test/cli_coverage/include', '-a', 'code']);
 
@@ -376,6 +395,80 @@ describe('CLI', () => {
         expect(result.code).to.equal(1);
         expect(result.output).to.contain('2 tests complete');
         expect(result.output).to.contain('Coverage: 0.00%');
+    });
+
+    it('can include all files in coverage with the --coverage-all argument', async () => {
+
+        const result = await RunCli(['test/cli_coverage', '-t', '100', '--coverage-path', 'test/cli_coverage', '--coverage-all', '-a', 'code']);
+
+        expect(result.errorOutput).to.equal('');
+        expect(result.code).to.equal(1);
+        expect(result.output).to.contain('1 tests complete');
+        expect(result.output).to.contain('Coverage: 86.67%');
+    });
+
+    it('reports coverage with --coverage-all and without -c or -t', async () => {
+
+        const result = await RunCli(['test/cli_coverage', '--coverage-path', 'test/cli_coverage', '--coverage-all', '-a', 'code']);
+
+        expect(result.errorOutput).to.equal('');
+        expect(result.code).to.equal(0);
+        expect(result.output).to.contain('1 tests complete');
+        expect(result.output).to.contain('Coverage: 86.67%');
+    });
+
+    it('can prevent recursive coverage inclusion with the --coverage-flat argument', async () => {
+
+        const result = await RunCli(['test/cli_coverage', '-t', '100', '--coverage-path', 'test/cli_coverage', '--coverage-all', '--coverage-flat', '-a', 'code']);
+
+        expect(result.errorOutput).to.equal('');
+        expect(result.code).to.equal(1);
+        expect(result.output).to.contain('1 tests complete');
+        expect(result.output).to.contain('Coverage: 80.00%');
+    });
+
+    it('can still exclude files with the --coverage-all argument', async () => {
+
+        const result = await RunCli(['test/cli_coverage', '-t', '100', '--coverage-exclude', 'missing.js', '--coverage-path', 'test/cli_coverage', '--coverage-all', '--coverage-flat', '-a', 'code']);
+
+        expect(result.errorOutput).to.equal('');
+        expect(result.code).to.equal(1);
+        expect(result.output).to.contain('1 tests complete');
+        expect(result.output).to.contain('Coverage: 0.00%');
+    });
+
+    it('outputs an error when --coverage-flat is used without --coverage-all', async () => {
+
+        const result = await RunCli(['test/cli_coverage', '-t', '100',  '--coverage-path', 'test/cli_coverage', '--coverage-flat', '-a', 'code']);
+
+        expect(result.errorOutput).to.include('The "coverage-flat" option can only be used with "coverage-all"');
+    });
+
+    it('matches coverage files using --pattern', async () => {
+
+        const result = await RunCli(['test/cli_coverage', '-t', '100', '--coverage-path', 'test/cli_coverage', '--coverage-all', '--pattern', 'include', '-a', 'code']);
+
+        expect(result.errorOutput).to.equal('');
+        expect(result.code).to.equal(0);
+        expect(result.output).to.contain('1 tests complete');
+        expect(result.output).to.contain('Coverage: 100.00%');
+    });
+
+    it('matches coverage files using --coverage-pattern', async () => {
+
+        const result = await RunCli(['test/cli_coverage', '-t', '100', '--coverage-path', 'test/cli_coverage', '--coverage-all', '--coverage-pattern', '.*?', '--pattern', 'include', '-a', 'code']);
+
+        expect(result.errorOutput).to.equal('');
+        expect(result.code).to.equal(1);
+        expect(result.output).to.contain('1 tests complete');
+        expect(result.output).to.contain('Coverage: 60.00%');
+    });
+
+    it('outputs an error when --coverage-pattern is used without --coverage-all', async () => {
+
+        const result = await RunCli(['test/cli_coverage', '-t', '100',  '--coverage-path', 'test/cli_coverage', '--coverage-pattern', 'include', '-a', 'code']);
+
+        expect(result.errorOutput).to.include('The "coverage-pattern" option can only be used with "coverage-all"');
     });
 
     it('defaults NODE_ENV environment variable to test', async () => {
@@ -481,20 +574,20 @@ describe('CLI', () => {
         expect(result.code).to.equal(0);
     });
 
-    it('displays error message when there is more than one "only" within one file', async () => {
+    it('does not display error message when there is more than one "only" within one file', async () => {
 
         const result = await RunCli(['test/cli_only-skip/onlyMultiple.js']);
 
-        expect(result.combinedOutput).to.contain('Multiple tests are marked as "only":');
-        expect(result.code).to.equal(1);
+        expect(result.combinedOutput).to.contain('8 skipped');
+        expect(result.code).to.equal(0);
     });
 
-    it('displays error message when there is more than one "only" accross multiple files', async () => {
+    it('does not display error message when there is more than one "only" accross multiple files', async () => {
 
         const result = await RunCli(['test/cli_only-skip/onlyExperiment.js', 'test/cli_only-skip/onlyTest.js']);
 
-        expect(result.combinedOutput).to.contain('Multiple tests are marked as "only":');
-        expect(result.code).to.equal(1);
+        expect(result.combinedOutput).to.contain('14 skipped');
+        expect(result.code).to.equal(0);
     });
 
     describe('when using multiple reporters', () => {
@@ -510,34 +603,20 @@ describe('CLI', () => {
             await unlink(filename);
         });
 
-        it('displays error message when there is more than one "only" accross multiple files', async () => {
+        it('does not display error message when there is more than one "only" accross multiple files', async () => {
 
             const result = await RunCli(['-r', 'console', '-o', 'stdout', '-r', 'json', '-o', filename, 'test/cli_only-skip/onlyExperiment.js', 'test/cli_only-skip/onlyTest.js']);
 
-            expect(result.combinedOutput).to.contain('Multiple tests are marked as "only":');
-            expect(result.code).to.equal(1);
+            expect(result.combinedOutput).to.contain('14 skipped');
+            expect(result.code).to.equal(0);
         });
 
         it('displays error message when there is more than one "only" accross multiple files and the first reporter is not console', async () => {
 
             const result = await RunCli(['-r', 'json', '-o', filename, '-r', 'console', '-o', 'stdout', 'test/cli_only-skip/onlyExperiment.js', 'test/cli_only-skip/onlyTest.js']);
 
-            expect(result.combinedOutput).to.contain('Multiple tests are marked as "only":');
-            expect(result.code).to.equal(1);
-        });
-
-        it('displays error message when there is more than one "only" accross multiple files and there’s no console reporter', async () => {
-
-            const result = await RunCli(['-r', 'json', '-o', filename, '-r', 'junit', '-o', filename, 'test/cli_only-skip/onlyExperiment.js', 'test/cli_only-skip/onlyTest.js']);
-
-            expect(result.combinedOutput).to.contain('Multiple tests are marked as "only":');
-            expect(result.code).to.equal(1);
-        });
-
-        it('has exit code of 1 when there is an error and using code coverage', async () => {
-
-            const result = await RunCli(['-t', '100', '-r', 'console', '-o', 'stdout', '-r', 'json', '-o', filename, 'test/cli_only-skip/onlyExperiment.js', 'test/cli_only-skip/onlyTest.js']);
-            expect(result.code).to.equal(1);
+            expect(result.combinedOutput).to.contain('14 skipped');
+            expect(result.code).to.equal(0);
         });
     });
 
@@ -613,7 +692,8 @@ describe('CLI', () => {
 
         expect(result.errorOutput).to.equal('');
         expect(result.code).to.equal(0);
-        expect(result.output).to.contain('<testsuite tests="2"');
+        expect(result.output).to.contain('<testsuites tests="2"');
+        expect(result.output).to.contain('<testsuite name="Test CLI" tests="2"');
     });
 
     it('outputs to file passed with -o argument', async () => {

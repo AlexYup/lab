@@ -26,6 +26,7 @@ const internals = {
                 if (Buffer.isBuffer(content)) {
                     content = content.toString();
                 }
+
                 return content.concat(Os.EOL).concat('//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIkB0cmFjZXVyL2dlbmVyYXRlZC9UZW1wbGF0ZVBhcnNlci8xIiwiLi93aGlsZS5qcyJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiO0FBQUEsQUFBSSxFQUFBLENBQUEsWUFBVyxVQUFvQixDQUFDO0FDS3BDLEFBQUksRUFBQSxDQUFBLFNBQVEsRUFBSSxHQUFDLENBQUM7QUFHbEIsTUFBTSxPQUFPLEVBQUksVUFBVSxLQUFJLENBQUc7QUFFOUIsUUFBTSxLQUFJLENBQUc7QUFDVCxRQUFJLEVBQUksTUFBSSxDQUFDO0VBQ2pCO0FBQUEsQUFFQSxPQUFPLE1BQUksQ0FBQztBQUNoQixDQUFDIiwic291cmNlc0NvbnRlbnQiOlsidmFyIF9fbW9kdWxlTmFtZSA9ICRfX3BsYWNlaG9sZGVyX18wOyIsIi8vIExvYWQgbW9kdWxlc1xuXG5cbi8vIERlY2xhcmUgaW50ZXJuYWxzXG5cbnZhciBpbnRlcm5hbHMgPSB7fTtcblxuXG5leHBvcnRzLm1ldGhvZCA9IGZ1bmN0aW9uICh2YWx1ZSkge1xuXG4gICAgd2hpbGUodmFsdWUpIHtcbiAgICAgICAgdmFsdWUgPSBmYWxzZTtcbiAgICB9XG5cbiAgICByZXR1cm4gdmFsdWU7XG59O1xuIl19').concat(Os.EOL);
             }
         },
@@ -45,21 +46,23 @@ describe('Transform', () => {
 
     Lab.coverage.instrument({ coveragePath: Path.join(__dirname, './transform/'), coverageExclude: 'exclude', transform: internals.transform });
 
-    it('instruments and measures coverage', () => {
+    it('instruments and measures coverage', async () => {
 
         const Test = require('./transform/basic-transform');
+
         expect(Test.method(1)).to.equal(3);
 
-        const cov = Lab.coverage.analyze({ coveragePath: Path.join(__dirname, 'transform/basic-transform') });
+        const cov = await Lab.coverage.analyze({ coveragePath: Path.join(__dirname, 'transform/basic-transform') });
         expect(cov.percent).to.equal(100);
     });
 
-    it('does not transform unneeded files', () => {
+    it('does not transform unneeded files', async () => {
 
         const Test = require('./transform/basic');
+
         expect(Test.method(1)).to.equal('!NOCOMPILE!');
 
-        const cov = Lab.coverage.analyze({ coveragePath: Path.join(__dirname, 'transform/basic') });
+        const cov = await Lab.coverage.analyze({ coveragePath: Path.join(__dirname, 'transform/basic') });
         expect(cov.percent).to.equal(100);
     });
 
@@ -79,10 +82,10 @@ describe('Transform', () => {
 
         require('./transform/basic-transform'); // prime the cache
 
-        const rel = Transform.retrieveFile('test/transform/basic-transform.new');
+        const rel = Transform.retrieveFile(Path.normalize('test/transform/basic-transform.new'));
         expect(rel).to.not.contain('!NOCOMPILE!');
 
-        const abs = Transform.retrieveFile(process.cwd() + '/test/transform/basic-transform.new');
+        const abs = Transform.retrieveFile(Path.normalize(process.cwd() + '/test/transform/basic-transform.new'));
         expect(abs).to.not.contain('!NOCOMPILE!');
     });
 });
@@ -108,9 +111,11 @@ describe('Transform.install', () => {
         Transform.install({ transform: internals.transform });
 
         const Test = require('./transform/sourcemaps');
-        expect(Test.method(false)).to.equal(false);
+
+        expect(Test.method(true)).to.equal(false);
 
         const Test2 = require('./transform/exclude/transform-basic');
+
         expect(Test2.method()).to.equal(1);
     });
 });

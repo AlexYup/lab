@@ -44,15 +44,17 @@ if (process.env.NODE_DEBUG_OPTION || inspectArg) {
         process.exit(code);
     });
 
+    process.on('SIGTERM', () => {
+
+        childLab.kill();
+    });
+
     return;
 }
 
 const main = async () => {
 
     let { code } = await require('../lib/cli').run();
-    if (typeof code !== 'number') {
-        code = code[Object.keys(code)[0]];
-    }
     process.exit(code);
 };
 

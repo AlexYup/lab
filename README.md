@@ -24,24 +24,26 @@ Lead Maintainer: [Wyatt Preul](https://github.com/geek)
 - `-c`, `--coverage` - enables code coverage analysis.
 - `--coverage-path` - sets code coverage path.
 - `--coverage-exclude` - sets code coverage excludes.
+- `--coverage-all` - report coverage for all matched files, not just those tested.
+- `--coverage-flat` - do not perform a recursive find of files for coverage report. Requires `--coverage-all`
+- `--coverage-pattern` - only report coverage for files with the given pattern in the name. Defaults to `pattern`. Requires `--coverage-all`
 - `-C`, `--colors` - enables or disables color output. Defaults to console capabilities.
 - `-d`, `--dry` - dry run. Skips all tests. Use with `-v` to generate a test catalog. Defaults to `false`.
 - `-e`, `--environment` - value to set the `NODE_ENV` environment variable to, defaults to 'test'.
 - `-f`, `--flat` - do not perform a recursive load of test files within the test directory.
 - `-g`, `--grep` - only run tests matching the given pattern which is internally compiled to a RegExp.
 - `-h`, `--help` - show command line usage.
-- `-i`, `--id` - only run the test for the given identifier (or identifiers range).
+- `-i`, `--id` - only run the test for the given identifier (or identifiers range, e.g. `lab -i 1-3,5`). Use `lab -dv` to print all tests and their identifier without running the tests.
 - `-I`, `--ignore` - ignore a list of globals for the leak detection (comma separated), this is an alias of `globals` property in `.labrc` file
 - `--inspect` - start lab in debug mode using the [V8 Inspector](https://nodejs.org/dist/latest-v7.x/docs/api/debugger.html#debugger_v8_inspector_integration_for_node_js).
 - `-l`, `--leaks` - disables global variable leak detection.
 - `-L`, `--lint` - run linting rules using linter.  Disabled by default.
 - `--lint-errors-threshold` - maximum absolute amount of linting errors. Defaults to 0.
 - `--lint-warnings-threshold` - maximum absolute amount of linting warnings. Defaults to 0.
-- `-m`, `--timeout` - individual tests timeout in milliseconds (zero disables timeout). Defaults to 2 seconds.
-- `-M`, `--context-timeout` - default timeouts for before, after, beforeEach and afterEach in milliseconds. Disabled by default.
-- `-n`, `--linter` - specify linting program file path; default is `eslint`.
 - `--lint-fix` - apply any fixes from the linter, requires `-L` or `--lint` to be enabled. Disabled by default.
 - `--lint-options` - specify options to pass to linting program. It must be a string that is JSON.parse(able).
+- `-m`, `--timeout` - individual tests timeout in milliseconds (zero disables timeout). Defaults to 2 seconds.
+- `-M`, `--context-timeout` - default timeouts for before, after, beforeEach and afterEach in milliseconds. Disabled by default.
 - `-o`, `--output` - file to write the report to, otherwise sent to stdout.
 - `-p`, `--default-plan-threshold` - sets the minimum number of assertions a test must run. Overridable with [`plan`](#plan).
 - `-P`, `--pattern` - only load files with the given pattern in the name.
@@ -277,6 +279,73 @@ lab.test('cleanups after test', (flags) => {
 });
 ```
 
+#### `flags.onUnhandledRejection()`
+
+You can assign a synchronous function to the `flags` object `onUnhandledRejection` property to register an override for global rejection handling. This can be used to test the code that is explicitly meant to result in unhandled rejections.
+
+<!-- eslint-disable no-undef -->
+```javascript
+lab.test('leaves an unhandled rejection', (flags) => {
+
+    return new Promise((resolve) => {
+
+        flags.onUnhandledRejection = (err) => {
+
+            expect(err).to.be.an.error('I want this rejection to remain unhandled in production');
+            resolve(); // finish the test
+        };
+
+        // sample production code
+        setTimeout(() => {
+
+            Promise.reject(new Error('I want this rejection to remain unhandled in production'));
+        });
+    });
+});
+```
+
+#### `flags.onUncaughtException()`
+
+You can assign a synchronous function to the `flags` object `onUncaughtException` property to register an override for global exception handling. This can be used to test the code that is explicitly meant to result in uncaught exceptions.
+
+<!-- eslint-disable no-undef -->
+```javascript
+lab.test('leaves an uncaught rejection', (flags) => {
+
+    return new Promise((resolve) => {
+
+        flags.onUncaughtException = (err) => {
+
+            expect(err).to.be.an.error('I want this exception to remain uncaught in production');
+            resolve(); // finish the test
+        };
+
+        // sample production code
+        setTimeout(() => {
+
+            throw new Error('I want this exception to remain uncaught in production');
+        });
+    });
+});
+```
+
+#### `context`
+
+`context` is an object that is passed to `before` and `after` functions in addition to tests themselves. The intent is to be able to set properties on `context` inside of a before function that can be used by a test function later. This should help reduce module level variables that are set by `before`/`beforeEach` functions. Tests aren't able to manipulate the context object for other tests.
+
+<!-- eslint-disable no-undef -->
+```javascript
+lab.before(({ context }) => {
+
+    context.foo = 'bar';
+})
+
+lab.test('contains context', ({ context }) => {
+
+    expect(context.foo).to.equal('bar');
+});
+```
+
 
 ### Timeouts
 
@@ -448,6 +517,13 @@ The `.labrc.js` file supports configuration keys that are named with the long na
 of the command line settings.  Therefore, if you need to specify an assert
 library, you would export a key named "assert" with the desired value.
 
+In addition, you can use the `paths` parameter to override the default test directory (i.e. `./test`):
+```js
+module.exports = {
+    paths: ['test/lab'],
+};
+```
+
 As stated at the beginning of the document, `--ignore` parameter is an alias for `globals` option in the `.labrc` file. Therefore if you wish to ignore specific files you'll need to append a `globals` setting, **not** an `ignore` one, as stated on #641.
 
 ## Extending the linter
@@ -478,12 +554,6 @@ flag with the `lint` flag.
 ```
 lab -dL
 ```
-
-
-## Running a custom linter
-
-If you would like to run a different linter, or even a custom version of eslint you should pass the `-n` or `--linter` argument with the path to the lint runner.  For example, if you plan to use jslint, you can install `lab-jslint` then pass `--linter node_modules/lab-jslint`.
-
 
 ## Integration with an assertion library
 

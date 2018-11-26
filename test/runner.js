@@ -201,7 +201,7 @@ describe('Runner', () => {
         const notebook = await Lab.execute(script, {}, null);
         expect(notebook.tests).to.have.length(1);
         expect(notebook.failures).to.equal(1);
-        expect(notebook.tests[0].err.stack).to.contain('test/runner.js');
+        expect(notebook.tests[0].err.stack).to.contain(Path.normalize('test/runner.js'));
     });
 
     it('should fail test that returns a rejected promise', async () => {
@@ -217,6 +217,33 @@ describe('Runner', () => {
         expect(notebook.tests).to.have.length(1);
         expect(notebook.failures).to.equal(1);
         expect(notebook.tests[0].err.toString()).to.contain('A reason why this test failed');
+    });
+
+    it('should fail test that returns a non-error response', async () => {
+
+        const script = Lab.script({ schedule: false });
+
+        script.test('a', async () => {
+
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            throw undefined;
+        });
+
+        const notebook = await Lab.execute(script, {}, null);
+        expect(notebook.tests).to.have.length(1);
+        expect(notebook.failures).to.equal(1);
+        expect(notebook.tests[0].err.toString()).to.contain('Error: Non Error object received or caught (unit test)');
+    });
+
+    it('should mark a test that isn\'t a function as a todo', async () => {
+
+        const script = Lab.script({ schedule: false });
+
+        script.test('a');
+
+        const notebook = await Lab.execute(script, {}, null);
+        expect(notebook.tests).to.have.length(1);
+        expect(notebook.tests[0].todo).to.be.true();
     });
 
     it('should not fail test that returns a resolved promise', async () => {
@@ -293,7 +320,7 @@ describe('Runner', () => {
             const notebook = await Lab.execute(script, {}, null);
             expect(notebook.tests).to.have.length(1);
             expect(notebook.failures, 'When throwing ' + falsy).to.equal(1);
-            expect(notebook.tests[0].err.toString()).to.contain('Non Error object received or caught');
+            expect(notebook.tests[0].err.toString()).to.contain('Non Error object received or caught (unit test)');
         }
     });
 
@@ -316,7 +343,7 @@ describe('Runner', () => {
         const notebook = await Lab.execute(script, {}, null);
         expect(notebook.tests).to.have.length(1);
         expect(notebook.failures).to.equal(1);
-        expect(notebook.tests[0].err.toString()).to.contain('Non Error object received or caught');
+        expect(notebook.tests[0].err.toString()).to.contain('Non Error object received or caught (unit test)');
     });
 
     ['before', 'beforeEach', 'after', 'afterEach'].forEach((fnName) => {
@@ -357,7 +384,7 @@ describe('Runner', () => {
 
                 const notebook = await Lab.execute(script, {}, null);
                 expect(notebook.failures, 'When throwing ' + falsy).to.equal(1);
-                expect(notebook.errors[0].message).to.contain('Non Error object received or caught');
+                expect(notebook.errors[0].message).to.contain('Non Error object received or caught (unit test)');
             }
         });
 
@@ -514,7 +541,6 @@ describe('Runner', () => {
         expect(notebook.tests.filter((test) => test.skipped)).to.have.length(3);
         expect(notebook.failures).to.equal(0);
     });
-
 
     it('skips everything except the "only" test when executing multiple scripts', async () => {
 
@@ -1202,6 +1228,43 @@ describe('Runner', () => {
         expect(output).to.not.match(/Expected at least \d+ assertions, but found \d+/);
     });
 
+    it('extends report with assertions library support and test error (minimum planned assertions)', async () => {
+
+        const script = Lab.script();
+        const assertions = Code;
+        script.experiment('test', () => {
+
+            script.test('1', { plan: 2 }, () => {
+
+                throw new Error('Expected 3 assertions');
+            });
+        });
+
+        const { code, output } = await Lab.report(script, { output: false, assert: assertions });
+        expect(code).to.equal(1);
+        expect(output).to.match(/Assertions count: \d+/);
+        expect(output).to.match(/Expected \d+ assertions/);
+    });
+
+    it('extends report with assertions library support and test error (default minimum planned assertions)', async () => {
+
+        const script = Lab.script();
+        const assertions = Code;
+        script.experiment('test', () => {
+
+            script.test('1', () => {
+
+                assertions.expect(true).to.be.true();
+                throw new Error('Expected 3 assertions');
+            });
+        });
+
+        const { code, output } = await Lab.report(script, { output: false, assert: assertions, 'default-plan-threshold': 2 });
+        expect(code).to.equal(1);
+        expect(output).to.match(/Assertions count: \d+/);
+        expect(output).to.match(/Expected at least \d+ assertions/);
+    });
+
     it('extends report with assertions library support (default minimum planned assertions)', async () => {
 
         const script = Lab.script();
@@ -1536,7 +1599,7 @@ describe('Runner', () => {
 
             const now = Date.now();
             await Lab.execute(script, null, null);
-            expect(Date.now() - now).to.be.above(9);
+            expect(Date.now() - now).to.be.above(8);
         });
 
         it('setTimeout still functions correctly with non-integer timeout', async () => {
@@ -1591,5 +1654,43 @@ describe('Runner', () => {
         const notebook = await Lab.execute(script, null);
         expect(notebook.tests).to.have.length(1);
         expect(notebook.failures).to.equal(1);
+    });
+
+    it('nullifies test context on finish', async () => {
+
+        const script = Lab.script({ schedule: false });
+
+        const testContext = {
+            testData: { hello: 'there' }
+        };
+
+        script.experiment('test', () => {
+
+            script.beforeEach(({ context }) => {
+
+                context.testData = testContext.testData;
+            });
+
+            script.test('has test context', ({ context }) => {
+
+                expect(context,'has proper context').to.equal(testContext);
+            });
+
+            script.test('still has test context', ({ context }) => {
+
+                expect(context,'has proper context').to.equal(testContext);
+            });
+        });
+
+        const notebook = await Lab.execute(script, {}, null);
+        expect(notebook.tests.length,'has 2 tests').to.equal(2);
+        expect(notebook.failures,'has 0 failures').to.equal(0);
+
+        const assertNulledContext = (test) => {
+
+            expect(test.context,'nulled context').to.be.null();
+        };
+
+        notebook.tests.forEach(assertNulledContext);
     });
 });
